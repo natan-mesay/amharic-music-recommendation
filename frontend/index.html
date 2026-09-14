@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Acoustic Vault - Audio-Content Music Discovery</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Top Navigation -->
+        <header class="navbar">
+            <div class="logo-area">
+                <div class="logo-icon">⚡</div>
+                <div>
+                    <h1 class="logo-title">ACOUSTIC VAULT</h1>
+                    <p class="logo-subtitle">Content-First Music Discovery Engine</p>
+                </div>
+            </div>
+            
+            <div class="header-badges">
+                <div class="badge badge-privacy">
+                    <span class="indicator-dot"></span>
+                    <span>YouTube History Isolated (No Cookies)</span>
+                </div>
+                <div class="badge badge-catalog" id="catalog-count-badge">
+                    <span>Indexed Tracks: 25+</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Ingest Bar -->
+        <section class="ingest-section">
+            <div class="ingest-box">
+                <input type="text" id="youtube-url-input" placeholder="Paste any YouTube URL or Video ID to analyze audio (e.g., https://youtu.be/4xDzrJKXOOY)..." />
+                <button id="btn-ingest" class="btn btn-primary">
+                    <span>⚡ Analyze & Index</span>
+                </button>
+            </div>
+            <div id="ingest-progress-container" class="ingest-progress hidden">
+                <div class="progress-bar-bg">
+                    <div id="ingest-progress-fill" class="progress-bar-fill" style="width: 0%;"></div>
+                </div>
+                <div class="progress-info">
+                    <span id="ingest-stage-text">Processing audio stream...</span>
+                    <span id="ingest-pct-text">0%</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Controls & Modulators -->
+        <section class="controls-panel">
+            <div class="control-card">
+                <div class="control-header">
+                    <label for="obscurity-slider">Discovery Obscurity Dial (λ): <strong id="obscurity-val">75%</strong></label>
+                    <span class="control-hint">Underground Bias vs Acoustic Match</span>
+                </div>
+                <input type="range" id="obscurity-slider" min="0" max="100" value="75" class="slider" />
+                <div class="slider-ticks">
+                    <span>0% (Acoustic Match)</span>
+                    <span>50% (Balanced)</span>
+                    <span>100% (Deep Underground)</span>
+                </div>
+            </div>
+
+            <div class="control-card">
+                <div class="control-header">
+                    <label>Tempo (BPM) Filter</label>
+                    <span class="control-hint" id="active-bpm-hint">All Tempos</span>
+                </div>
+                <div class="tempo-pills">
+                    <button class="pill active" data-bpm="all">All</button>
+                    <button class="pill" data-bpm="slow">Chill (<100)</button>
+                    <button class="pill" data-bpm="mid">Groove (100-128)</button>
+                    <button class="pill" data-bpm="fast">Driving (128+)</button>
+                </div>
+            </div>
+
+            <div class="control-card seed-card">
+                <div class="control-header">
+                    <label>Active Acoustic Seed</label>
+                    <span class="badge badge-sm" id="seed-bpm-badge">-- BPM</span>
+                </div>
+                <div class="seed-preview">
+                    <span class="seed-icon">🎵</span>
+                    <div class="seed-details">
+                        <h4 id="seed-title">Loading initial seed...</h4>
+                        <p id="seed-channel">Underground Vault</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Main Content Area -->
+        <main class="main-grid">
+            <!-- Left: Sandboxed YouTube Player & Acoustic Scope -->
+            <section class="player-panel">
+                <div class="player-frame-wrapper">
+                    <div id="youtube-player-container">
+                        <!-- Interactive YouTube IFrame API Target -->
+                        <div id="yt-player-target"></div>
+                    </div>
+
+                    <!-- YouTube-Style "Up Next" Countdown Overlay -->
+                    <div id="up-next-overlay" class="up-next-overlay hidden">
+                        <div class="up-next-card">
+                            <div class="up-next-header">
+                                <span class="up-next-badge">⚡ UP NEXT</span>
+                                <span class="up-next-timer">Starting in <strong id="countdown-num">5</strong>s</span>
+                            </div>
+                            <div class="up-next-track">
+                                <div class="up-next-thumbnail">🎵</div>
+                                <div class="up-next-info">
+                                    <h4 id="up-next-title">Next Track Title</h4>
+                                    <p id="up-next-artist">Artist Name</p>
+                                    <span class="up-next-match" id="up-next-match">95% Sound Match</span>
+                                </div>
+                            </div>
+                            <div class="up-next-progress-bar">
+                                <div id="up-next-progress-fill" class="up-next-progress-fill"></div>
+                            </div>
+                            <div class="up-next-actions">
+                                <button id="btn-cancel-countdown" class="btn btn-sm btn-outline">Cancel</button>
+                                <button id="btn-play-now" class="btn btn-sm btn-primary">▶️ Play Now</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="now-playing-details">
+                    <div class="track-header">
+                        <div>
+                            <h2 id="current-track-title">Select a track to start discovery</h2>
+                            <p id="current-track-channel">Acoustic Vault</p>
+                        </div>
+                        <div class="views-tag" id="current-track-views">
+                            <span>👁️ 0 views</span>
+                        </div>
+                    </div>
+
+                    <!-- Acoustic Meters -->
+                    <div class="acoustic-meters-grid">
+                        <div class="meter-box">
+                            <span class="meter-label">Tempo</span>
+                            <strong class="meter-val" id="meter-bpm">-- BPM</strong>
+                        </div>
+                        <div class="meter-box">
+                            <span class="meter-label">Energy</span>
+                            <div class="meter-bar"><div id="meter-energy-fill" style="width: 0%"></div></div>
+                        </div>
+                        <div class="meter-box">
+                            <span class="meter-label">Brightness</span>
+                            <div class="meter-bar"><div id="meter-bright-fill" style="width: 0%"></div></div>
+                        </div>
+                        <div class="meter-box">
+                            <span class="meter-label">Key</span>
+                            <strong class="meter-val" id="meter-key">--</strong>
+                        </div>
+                    </div>
+
+                    <!-- Player Controls & Autoplay Ribbon -->
+                    <div class="player-controls-container">
+                        <div class="player-actions">
+                            <button id="btn-prev" class="btn btn-outline btn-icon" title="Previous Track (Shift+P)">
+                                <span>⏮️</span>
+                            </button>
+                            <button id="btn-play-pause" class="btn btn-outline btn-icon" title="Play / Pause (Space / K)">
+                                <span id="play-pause-icon">⏯️</span>
+                            </button>
+                            <button id="btn-next" class="btn btn-secondary" title="Next Track (Shift+N)">
+                                <span>⏭️ Next Track</span>
+                            </button>
+                            <button id="btn-reseed" class="btn btn-outline" title="Use current song as new acoustic seed">
+                                <span>🎯 Reseed</span>
+                            </button>
+                        </div>
+                        <div class="autoplay-control">
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="toggle-autoplay" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                            <span class="toggle-label" title="Auto-advance to next recommended track when current finishes">Autoplay</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right: Zero-Replay Discovery Queue -->
+            <section class="queue-panel">
+                <div class="queue-header">
+                    <div>
+                        <h3>Zero-Replay Discovery Queue</h3>
+                        <p class="queue-subtitle">Ranked purely on sound vector similarity + obscurity boost</p>
+                    </div>
+                    <button id="btn-refresh-queue" class="btn btn-sm btn-outline">
+                        <span>🔄 Refresh Queue</span>
+                    </button>
+                </div>
+
+                <div class="queue-list" id="queue-list-container">
+                    <!-- Dynamic queue items populated via JavaScript -->
+                    <div class="loading-queue">Computing acoustic similarities across latent space...</div>
+                </div>
+
+                <!-- Session Cooldown Status Footer -->
+                <div class="session-footer">
+                    <div class="session-stats">
+                        <span>🔒 Session Cooldown: <strong id="cooldown-count">0</strong> tracks blocked from repeating</span>
+                    </div>
+                    <button id="btn-reset-session" class="btn-text">Reset History</button>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="https://www.youtube.com/iframe_api"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

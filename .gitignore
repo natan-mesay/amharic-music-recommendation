@@ -1,0 +1,27 @@
+# Environments
+venv/
+env/
+ENV/
+.venv
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local Vector DB Data
+data/qdrant_db/
+
+# OS / Editor Files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*.log
