@@ -707,15 +707,20 @@ class AcousticVaultApp {
         this.galaxyTooltip = document.getElementById("galaxy-tooltip");
 
         const resizeCanvas = () => {
+            if (!this.galaxyCanvas || !this.galaxyCanvas.parentElement) return;
             const rect = this.galaxyCanvas.parentElement.getBoundingClientRect();
-            this.galaxyCanvas.width = rect.width * window.devicePixelRatio;
-            this.galaxyCanvas.height = rect.height * window.devicePixelRatio;
-            this.galaxyCtx.scale(window.devicePixelRatio, window.devicePixelRatio);
+            const w = Math.floor(rect.width);
+            const h = Math.floor(rect.height) || 360;
+            if (w > 0 && h > 0 && (this.galaxyCanvas.width !== w || this.galaxyCanvas.height !== h)) {
+                this.galaxyCanvas.width = w;
+                this.galaxyCanvas.height = h;
+            }
             this.drawGalaxy();
         };
 
         window.addEventListener("resize", resizeCanvas);
-        setTimeout(resizeCanvas, 100);
+        setTimeout(resizeCanvas, 50);
+        setTimeout(resizeCanvas, 300);
 
         // Mouse Hover & Interaction
         this.galaxyCanvas.addEventListener("mousemove", (e) => {
@@ -825,9 +830,8 @@ class AcousticVaultApp {
 
     drawGalaxy() {
         if (!this.galaxyCtx || !this.galaxyCanvas) return;
-        const rect = this.galaxyCanvas.getBoundingClientRect();
-        const width = rect.width;
-        const height = rect.height;
+        const width = this.galaxyCanvas.width || 1200;
+        const height = this.galaxyCanvas.height || 360;
         if (width === 0 || height === 0) return;
 
         const ctx = this.galaxyCtx;
