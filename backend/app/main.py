@@ -15,7 +15,8 @@ from .models.schemas import (
     RecommendationResponse,
     SessionFeedbackRequest,
     IngestURLRequest,
-    Track
+    Track,
+    GalaxyResponse
 )
 from .services.vector_store import vector_store
 from .services.recommender import recommender_engine
@@ -124,6 +125,107 @@ async def list_catalog_tracks(limit: int = 50):
     return {
         "count": len(tracks),
         "tracks": tracks
+    }
+
+@app.get(f"{settings.API_V1_PREFIX}/catalog/galaxy", response_model=GalaxyResponse)
+async def get_galaxy_map():
+    """
+    Retrieve all catalog tracks with their projected 2D latent space coordinates
+    for the interactive Canvas Galaxy Visualizer.
+    """
+    points = vector_store.get_galaxy_points()
+    return GalaxyResponse(count=len(points), points=points)
+
+@app.get(f"{settings.API_V1_PREFIX}/catalog/qenet-modes")
+async def get_qenet_modes():
+    """
+    Returns the 4 primary Ethiopian pentatonic modal scales (Qenet) with their interval formulas.
+    """
+    return {
+        "modes": [
+            {
+                "id": "Tizita",
+                "name_en": "Tizita",
+                "name_am": "ትዝታ",
+                "color_hex": "#f59e0b",
+                "description": "Nostalgic, deeply reflective, and emotional ballads of memory and longing.",
+                "intervals": [0, 2, 4, 7, 9],
+                "submodes": ["Tizita Major", "Tizita Minor"]
+            },
+            {
+                "id": "Bati",
+                "name_en": "Bati",
+                "name_am": "ባቲ",
+                "color_hex": "#06b6d4",
+                "description": "Mystical, contemplative, bluesy desert modal harmonies.",
+                "intervals": [0, 4, 5, 7, 11],
+                "submodes": ["Bati Major", "Bati Minor"]
+            },
+            {
+                "id": "Ambassel",
+                "name_en": "Ambassel",
+                "name_am": "አምባሰል",
+                "color_hex": "#10b981",
+                "description": "Pastoral, mountainous, epic narrative and soulful acoustic storytelling.",
+                "intervals": [0, 1, 5, 7, 8],
+                "submodes": ["Ambassel"]
+            },
+            {
+                "id": "Anchihoye",
+                "name_en": "Anchihoye",
+                "name_am": "አንቺሆዬ",
+                "color_hex": "#ec4899",
+                "description": "Celebratory, energetic, driving spiritual yearning and dynamic groove.",
+                "intervals": [0, 1, 5, 6, 10],
+                "submodes": ["Anchihoye"]
+            }
+        ]
+    }
+
+@app.get(f"{settings.API_V1_PREFIX}/catalog/vibe-presets")
+async def get_vibe_presets():
+    """
+    Returns the curated discovery presets.
+    """
+    return {
+        "presets": [
+            {
+                "id": "buna_tizita",
+                "label": "Buna & Tizita",
+                "icon": "☕",
+                "description": "Late-night coffee & soulful Tizita ballads (BPM < 95, deep memory)",
+                "target_qenet": "Tizita",
+                "target_bpm_hint": "< 95 BPM",
+                "obscurity_val": 80
+            },
+            {
+                "id": "eskista_beat",
+                "label": "Eskista Driving Beat",
+                "icon": "⚡",
+                "description": "Fast polyrhythms, shoulder-dance percussion, and high danceability (BPM > 118)",
+                "target_qenet": None,
+                "target_bpm_hint": "118+ BPM",
+                "obscurity_val": 50
+            },
+            {
+                "id": "mulatu_lounge",
+                "label": "Mulatu's Lounge",
+                "icon": "🎷",
+                "description": "70s Golden Ethio-Jazz, vibraphone textures, and vintage horn grooves",
+                "target_qenet": None,
+                "target_bpm_hint": "80 - 120 BPM",
+                "obscurity_val": 65
+            },
+            {
+                "id": "azmari_underground",
+                "label": "The Azmari Underground",
+                "icon": "🔮",
+                "description": "100% deep underground Masenqo & Krar raw traditional recordings",
+                "target_qenet": None,
+                "target_bpm_hint": "All Tempos",
+                "obscurity_val": 100
+            }
+        ]
     }
 
 @app.post(f"{settings.API_V1_PREFIX}/catalog/reset-amharic")

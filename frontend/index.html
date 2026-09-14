@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Acoustic Vault - Audio-Content Music Discovery</title>
+    <title>Acoustic Vault - Ethiopian & Amharic Music Discovery</title>
     <link rel="stylesheet" href="/static/css/style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -17,17 +17,23 @@
                 <div class="logo-icon">⚡</div>
                 <div>
                     <h1 class="logo-title">ACOUSTIC VAULT</h1>
-                    <p class="logo-subtitle">Content-First Music Discovery Engine</p>
+                    <p class="logo-subtitle">Ethiopian Pentatonic Music Discovery Engine</p>
                 </div>
             </div>
             
             <div class="header-badges">
+                <button id="btn-toggle-galaxy" class="badge badge-galaxy" title="Toggle 2D Acoustic Galaxy Canvas">
+                    <span>🌌 Latent Galaxy Map</span>
+                </button>
+                <button id="btn-open-vault" class="badge badge-vault" title="Open Saved Favorites Drawer">
+                    <span>⭐ My Vault (<strong id="vault-badge-count">0</strong>)</span>
+                </button>
                 <div class="badge badge-privacy">
                     <span class="indicator-dot"></span>
-                    <span>YouTube History Isolated (No Cookies)</span>
+                    <span>History Isolated</span>
                 </div>
                 <div class="badge badge-catalog" id="catalog-count-badge">
-                    <span>Indexed Tracks: 25+</span>
+                    <span>Indexed: 32+</span>
                 </div>
             </div>
         </header>
@@ -35,7 +41,7 @@
         <!-- Ingest Bar -->
         <section class="ingest-section">
             <div class="ingest-box">
-                <input type="text" id="youtube-url-input" placeholder="Paste any YouTube URL or Video ID to analyze audio (e.g., https://youtu.be/4xDzrJKXOOY)..." />
+                <input type="text" id="youtube-url-input" placeholder="Paste any YouTube URL or Video ID to analyze audio (e.g., https://youtu.be/xmLmdf_Jf8s)..." />
                 <button id="btn-ingest" class="btn btn-primary">
                     <span>⚡ Analyze & Index</span>
                 </button>
@@ -51,16 +57,60 @@
             </div>
         </section>
 
+        <!-- Discovery Modes Ribbon: Vibe Presets & Qenet Intelligence -->
+        <section class="discovery-ribbon">
+            <!-- Vibe Presets -->
+            <div class="ribbon-card">
+                <div class="ribbon-header">
+                    <span class="ribbon-title">📻 Vibe Channels</span>
+                    <span class="ribbon-hint">One-Click Presets</span>
+                </div>
+                <div class="vibe-presets-grid">
+                    <button class="vibe-pill" data-vibe="buna_tizita" title="Late night coffee & soulful Tizita ballads (BPM < 95)">
+                        <span class="vibe-icon">☕</span>
+                        <span>Buna & Tizita</span>
+                    </button>
+                    <button class="vibe-pill" data-vibe="eskista_beat" title="Fast polyrhythms, shoulder dance & high danceability (BPM > 118)">
+                        <span class="vibe-icon">⚡</span>
+                        <span>Eskista Beat</span>
+                    </button>
+                    <button class="vibe-pill" data-vibe="mulatu_lounge" title="70s Golden Ethio-Jazz, vibraphones & vintage brass">
+                        <span class="vibe-icon">🎷</span>
+                        <span>Mulatu's Lounge</span>
+                    </button>
+                    <button class="vibe-pill" data-vibe="azmari_underground" title="100% deep underground Masenqo & Krar raw recordings">
+                        <span class="vibe-icon">🔮</span>
+                        <span>Azmari Underground</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Ethiopian Qenet Modal Filter -->
+            <div class="ribbon-card">
+                <div class="ribbon-header">
+                    <span class="ribbon-title">🇪🇹 Qenet (ቅኝት) Pentatonic Filter</span>
+                    <span class="ribbon-hint" id="active-qenet-desc">All Scales</span>
+                </div>
+                <div class="qenet-pills">
+                    <button class="pill qenet-pill active" data-qenet="all">All</button>
+                    <button class="pill qenet-pill qenet-tizita" data-qenet="Tizita">ትዝታ (Tizita)</button>
+                    <button class="pill qenet-pill qenet-bati" data-qenet="Bati">ባቲ (Bati)</button>
+                    <button class="pill qenet-pill qenet-ambassel" data-qenet="Ambassel">አምባሰል (Ambassel)</button>
+                    <button class="pill qenet-pill qenet-anchihoye" data-qenet="Anchihoye">አንቺሆዬ (Anchihoye)</button>
+                </div>
+            </div>
+        </section>
+
         <!-- Controls & Modulators -->
         <section class="controls-panel">
             <div class="control-card">
                 <div class="control-header">
-                    <label for="obscurity-slider">Discovery Obscurity Dial (λ): <strong id="obscurity-val">75%</strong></label>
-                    <span class="control-hint">Underground Bias vs Acoustic Match</span>
+                    <label for="obscurity-slider">Obscurity Dial (λ): <strong id="obscurity-val">75%</strong></label>
+                    <span class="control-hint">Underground vs Viral Bias</span>
                 </div>
                 <input type="range" id="obscurity-slider" min="0" max="100" value="75" class="slider" />
                 <div class="slider-ticks">
-                    <span>0% (Acoustic Match)</span>
+                    <span>0% (Sound Match)</span>
                     <span>50% (Balanced)</span>
                     <span>100% (Deep Underground)</span>
                 </div>
@@ -68,14 +118,14 @@
 
             <div class="control-card">
                 <div class="control-header">
-                    <label>Tempo (BPM) Filter</label>
-                    <span class="control-hint" id="active-bpm-hint">All Tempos</span>
+                    <label>Musical Era</label>
+                    <span class="control-hint" id="active-era-hint">All Eras</span>
                 </div>
-                <div class="tempo-pills">
-                    <button class="pill active" data-bpm="all">All</button>
-                    <button class="pill" data-bpm="slow">Chill (<100)</button>
-                    <button class="pill" data-bpm="mid">Groove (100-128)</button>
-                    <button class="pill" data-bpm="fast">Driving (128+)</button>
+                <div class="tempo-pills era-pills">
+                    <button class="pill era-pill active" data-era="all">All</button>
+                    <button class="pill era-pill" data-era="Golden 70s">70s Vinyl</button>
+                    <button class="pill era-pill" data-era="80s-90s Cassette">80s-90s Tape</button>
+                    <button class="pill era-pill" data-era="Modern 2020s">Modern 2020s</button>
                 </div>
             </div>
 
@@ -91,6 +141,26 @@
                         <p id="seed-channel">Underground Vault</p>
                     </div>
                 </div>
+            </div>
+        </section>
+
+        <!-- 2D Latent Galaxy Space Visualizer (Collapsible / Dynamic View) -->
+        <section id="galaxy-section" class="galaxy-section">
+            <div class="galaxy-header">
+                <div>
+                    <h3>🌌 2D Acoustic Latent Galaxy</h3>
+                    <p class="galaxy-subtitle">64-Dimensional Timbre & Qenet Spatial Projection (Click any star to play)</p>
+                </div>
+                <div class="galaxy-legend">
+                    <span class="legend-item"><span class="dot dot-tizita"></span> Tizita</span>
+                    <span class="legend-item"><span class="dot dot-bati"></span> Bati</span>
+                    <span class="legend-item"><span class="dot dot-ambassel"></span> Ambassel</span>
+                    <span class="legend-item"><span class="dot dot-anchihoye"></span> Anchihoye</span>
+                </div>
+            </div>
+            <div class="canvas-wrapper">
+                <canvas id="galaxy-canvas" width="1300" height="360"></canvas>
+                <div id="galaxy-tooltip" class="galaxy-tooltip hidden"></div>
             </div>
         </section>
 
@@ -133,11 +203,17 @@
                 <div class="now-playing-details">
                     <div class="track-header">
                         <div>
-                            <h2 id="current-track-title">Select a track to start discovery</h2>
+                            <div class="title-with-badge">
+                                <h2 id="current-track-title">Select a track to start discovery</h2>
+                                <button id="btn-star-current" class="btn-star" title="Save to My Vault">⭐</button>
+                            </div>
                             <p id="current-track-channel">Acoustic Vault</p>
                         </div>
-                        <div class="views-tag" id="current-track-views">
-                            <span>👁️ 0 views</span>
+                        <div class="header-tags">
+                            <span class="qenet-badge" id="current-qenet-badge">ቅኝት: Tizita</span>
+                            <div class="views-tag" id="current-track-views">
+                                <span>👁️ 0 views</span>
+                            </div>
                         </div>
                     </div>
 
@@ -156,7 +232,7 @@
                             <div class="meter-bar"><div id="meter-bright-fill" style="width: 0%"></div></div>
                         </div>
                         <div class="meter-box">
-                            <span class="meter-label">Key</span>
+                            <span class="meter-label">Key & Mode</span>
                             <strong class="meter-val" id="meter-key">--</strong>
                         </div>
                     </div>
@@ -201,7 +277,6 @@
                 </div>
 
                 <div class="queue-list" id="queue-list-container">
-                    <!-- Dynamic queue items populated via JavaScript -->
                     <div class="loading-queue">Computing acoustic similarities across latent space...</div>
                 </div>
 
@@ -215,6 +290,34 @@
             </section>
         </main>
     </div>
+
+    <!-- Slide-Out "My Vault" Drawer -->
+    <aside id="vault-drawer" class="vault-drawer hidden">
+        <div class="vault-drawer-header">
+            <div>
+                <h3>⭐ My Acoustic Vault</h3>
+                <p class="vault-subtitle"><span id="vault-track-count">0</span> Saved Gems</p>
+            </div>
+            <button id="btn-close-vault" class="btn-close-drawer" title="Close Vault">✕</button>
+        </div>
+
+        <div class="vault-actions-bar">
+            <button id="btn-play-all-youtube" class="btn btn-primary btn-sm btn-full" title="Open YouTube Multi-Video Playlist Player">
+                <span>▶️ Play All in YouTube Playlist</span>
+            </button>
+            <div class="vault-export-btns">
+                <button id="btn-export-m3u" class="btn btn-outline btn-sm">⬇ .M3U</button>
+                <button id="btn-export-json" class="btn btn-outline btn-sm">⬇ JSON</button>
+                <button id="btn-copy-tracklist" class="btn btn-outline btn-sm">📋 Copy Links</button>
+                <button id="btn-clear-vault" class="btn-text btn-sm">Clear All</button>
+            </div>
+        </div>
+
+        <div class="vault-list" id="vault-list-container">
+            <div class="empty-vault">Your Vault is empty. Click the ⭐ icon on any track to save it here!</div>
+        </div>
+    </aside>
+    <div id="vault-backdrop" class="vault-backdrop hidden"></div>
 
     <script src="https://www.youtube.com/iframe_api"></script>
     <script src="/static/js/app.js"></script>

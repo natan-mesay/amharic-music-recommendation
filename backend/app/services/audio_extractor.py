@@ -1,6 +1,8 @@
 """
 Audio Feature Extraction and Acoustic Embedding Pipeline.
+Enhanced with Ethiopian Qenet (ቅኝት) Pentatonic Modal Scale Classification.
 Computes multi-window acoustic descriptors:
+- Ethiopian Pentatonic Scale Identification (Tizita, Bati, Ambassel, Anchihoye)
 - Timbral brightness (Spectral Centroid)
 - Frequency energy distribution (Mel-Filterbank bands)
 - Harmonic Chroma Pitch Profiles (12-semitone tonality)
@@ -13,6 +15,26 @@ from typing import Dict, Any, List, Tuple
 from ..config import settings
 from ..models.schemas import AcousticFeatures
 
+# Ethiopian 5-Note Pentatonic Modal Scale Binary Templates across 12 chromatic pitches
+# [C, C#, D, D#, E, F, F#, G, G#, A, A#, B]
+ETHIOPIAN_QENET_TEMPLATES = {
+    "Tizita Major": np.array([1, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0], dtype=float),   # Intervals: 0, 2, 4, 7, 9
+    "Tizita Minor": np.array([1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0], dtype=float),   # Intervals: 0, 3, 5, 7, 10
+    "Bati Major":   np.array([1, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1], dtype=float),   # Intervals: 0, 4, 5, 7, 11
+    "Bati Minor":   np.array([1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0], dtype=float),   # Intervals: 0, 3, 5, 8, 10
+    "Ambassel":     np.array([1, 1, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0], dtype=float),   # Intervals: 0, 1, 5, 7, 8
+    "Anchihoye":    np.array([1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0], dtype=float),   # Intervals: 0, 1, 5, 6, 10
+}
+
+QENET_PARENT_MAP = {
+    "Tizita Major": "Tizita",
+    "Tizita Minor": "Tizita",
+    "Bati Major": "Bati",
+    "Bati Minor": "Bati",
+    "Ambassel": "Ambassel",
+    "Anchihoye": "Anchihoye",
+}
+
 class AudioFeatureExtractor:
     def __init__(self, sample_rate: int = settings.SAMPLE_RATE, embedding_dim: int = settings.EMBEDDING_DIM):
         self.sample_rate = sample_rate
@@ -20,13 +42,43 @@ class AudioFeatureExtractor:
         self.window_samples = int(settings.WINDOW_SEC * sample_rate)
         self.hop_samples = int(settings.HOP_SEC * sample_rate)
 
+    def classify_qenet_from_chroma(self, chroma_vector: np.ndarray) -> Tuple[str, str, float]:
+        """
+        Classifies the Ethiopian pentatonic modal scale (Qenet) from a 12-tone chroma profile.
+        Uses rotational invariance across all 12 pitch roots to match modal intervals.
+        Returns: (qenet_mode, qenet_submode, confidence)
+        """
+        if len(chroma_vector) < 12:
+            return "Tizita", "Tizita Minor", 0.5
+
+        chroma_norm = chroma_vector[:12]
+        c_len = np.linalg.norm(chroma_norm)
+        if c_len > 0:
+            chroma_norm = chroma_norm / c_len
+
+        best_score = -1.0
+        best_submode = "Tizita Minor"
+
+        for submode, template in ETHIOPIAN_QENET_TEMPLATES.items():
+            t_norm = template / np.linalg.norm(template)
+            # Test all 12 circular pitch shifts (root key independence)
+            for shift in range(12):
+                rotated_t = np.roll(t_norm, shift)
+                sim = float(np.dot(chroma_norm, rotated_t))
+                if sim > best_score:
+                    best_score = sim
+                    best_submode = submode
+
+        confidence = round(float(np.clip((best_score - 0.3) / 0.7, 0.5, 0.99)), 3)
+        primary_mode = QENET_PARENT_MAP.get(best_submode, "Tizita")
+        return primary_mode, best_submode, confidence
+
     def extract_features_from_audio(self, audio_data: np.ndarray, sr: int = None) -> AcousticFeatures:
         """
         Extract acoustic descriptors and 64-dimensional dense normalized embedding vector
-        from an audio array.
+        from an audio array, complete with Ethiopian Qenet classification.
         """
         if sr is not None and sr != self.sample_rate:
-            # Resample simply if rate differs
             num_target_samples = int(len(audio_data) * self.sample_rate / sr)
             audio_data = np.interp(
                 np.linspace(0, len(audio_data), num_target_samples, endpoint=False),
@@ -41,8 +93,7 @@ class AudioFeatureExtractor:
             audio_data = audio_data / np.max(np.abs(audio_data))
         
         total_samples = len(audio_data)
-        if total_samples < self.sample_rate * 2:  # Min 2 seconds
-            # Pad if too short
+        if total_samples < self.sample_rate * 2:
             pad_len = self.sample_rate * 2 - total_samples
             audio_data = np.pad(audio_data, (0, pad_len), mode='constant')
             total_samples = len(audio_data)
@@ -91,8 +142,12 @@ class AudioFeatureExtractor:
         tonal_energy = float(np.clip(np.mean(global_vec[16:28]) * 3.0, 0.1, 0.9))
         
         pitch_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-        dominant_pitch_idx = int(np.argmax(global_vec[16:28]))
+        chroma_slice = global_vec[16:28]
+        dominant_pitch_idx = int(np.argmax(chroma_slice))
         harmonic_key = pitch_names[dominant_pitch_idx]
+
+        # Ethiopian Qenet classification from Chroma profile (dimensions 16..28)
+        qenet_mode, qenet_submode, qenet_confidence = self.classify_qenet_from_chroma(chroma_slice)
 
         return AcousticFeatures(
             bpm=round(avg_bpm, 1),
@@ -101,6 +156,9 @@ class AudioFeatureExtractor:
             brightness=round(avg_brightness, 3),
             tonal_energy=round(tonal_energy, 3),
             harmonic_key=harmonic_key,
+            qenet_mode=qenet_mode,
+            qenet_submode=qenet_submode,
+            qenet_confidence=qenet_confidence,
             embedding=global_vec.tolist()
         )
 
@@ -114,7 +172,6 @@ class AudioFeatureExtractor:
         - 20 High-order harmonic timbre texture coefficients
         Total = 64 dimensions
         """
-        # A. Spectrogram computation
         nperseg = 1024
         noverlap = 512
         freqs, times, Sxx = spectrogram(chunk, fs=self.sample_rate, nperseg=nperseg, noverlap=noverlap)
@@ -155,11 +212,9 @@ class AudioFeatureExtractor:
         onset_env = np.mean(np.diff(np.maximum(0, log_Sxx), axis=1, prepend=0), axis=0)
         onset_env = np.maximum(0, onset_env)
         
-        # Autocorrelation of onset envelope
         if len(onset_env) > 10:
             autocorr = np.correlate(onset_env - np.mean(onset_env), onset_env - np.mean(onset_env), mode='full')
             autocorr = autocorr[len(autocorr)//2:]
-            # Search lags corresponding to 60 - 180 BPM
             time_res = (len(chunk) / self.sample_rate) / len(times)
             min_lag = int((60.0 / 180.0) / time_res)
             max_lag = int((60.0 / 60.0) / time_res)

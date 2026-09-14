@@ -180,3 +180,74 @@ def test_fast_path_check_url():
         assert res_miss.status_code == 200
         data_miss = res_miss.json()
         assert data_miss["exists"] is False
+
+def test_qenet_classification():
+    extractor = AudioFeatureExtractor()
+    
+    # Synthetic C-Tizita Major pentatonic chroma [1, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0]
+    chroma_tizita = np.array([1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0])
+    mode, submode, conf = extractor.classify_qenet_from_chroma(chroma_tizita)
+    assert mode == "Tizita"
+    assert "Major" in submode
+    assert conf > 0.8
+
+    # Synthetic Bati Major pentatonic chroma [1, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1]
+    chroma_bati = np.array([1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0])
+    mode, submode, conf = extractor.classify_qenet_from_chroma(chroma_bati)
+    assert mode == "Bati"
+    assert "Major" in submode
+    assert conf > 0.8
+
+def test_galaxy_and_presets_api():
+    with TestClient(app) as test_client:
+        # 1. Galaxy coordinates endpoint
+        res_galaxy = test_client.get("/api/v1/catalog/galaxy")
+        assert res_galaxy.status_code == 200
+        galaxy_data = res_galaxy.json()
+        assert "points" in galaxy_data
+        assert len(galaxy_data["points"]) >= 20
+        first_pt = galaxy_data["points"][0]
+        assert "galaxy_x" in first_pt
+        assert "galaxy_y" in first_pt
+        assert -1.0 <= first_pt["galaxy_x"] <= 1.0
+        assert -1.0 <= first_pt["galaxy_y"] <= 1.0
+        assert "qenet_mode" in first_pt
+
+        # 2. Qenet modes catalog endpoint
+        res_modes = test_client.get("/api/v1/catalog/qenet-modes")
+        assert res_modes.status_code == 200
+        modes_data = res_modes.json()["modes"]
+        assert len(modes_data) == 4
+        mode_names = [m["name_en"] for m in modes_data]
+        assert "Tizita" in mode_names
+        assert "Bati" in mode_names
+        assert "Ambassel" in mode_names
+        assert "Anchihoye" in mode_names
+
+        # 3. Vibe presets catalog endpoint
+        res_vibes = test_client.get("/api/v1/catalog/vibe-presets")
+        assert res_vibes.status_code == 200
+        vibes_data = res_vibes.json()["presets"]
+        assert len(vibes_data) == 4
+
+        # 4. Recommendation with Qenet filter
+        res_qenet_filter = test_client.post("/api/v1/recommendations/next", json={
+            "session_token": "pytest_qenet_session",
+            "qenet_filter": "Tizita",
+            "batch_size": 5
+        })
+        assert res_qenet_filter.status_code == 200
+        qenet_items = res_qenet_filter.json()["items"]
+        for item in qenet_items:
+            assert item.get("qenet_mode") == "Tizita"
+
+        # 5. Recommendation with Vibe Preset
+        res_vibe_filter = test_client.post("/api/v1/recommendations/next", json={
+            "session_token": "pytest_vibe_session",
+            "vibe_preset": "eskista_beat",
+            "batch_size": 5
+        })
+        assert res_vibe_filter.status_code == 200
+        vibe_items = res_vibe_filter.json()["items"]
+        assert len(vibe_items) > 0
+

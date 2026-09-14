@@ -1,11 +1,13 @@
 /**
  * Acoustic Vault Frontend Application Logic
  * Implements:
+ * - 🇪🇹 Ethiopian "Qenet" (ቅኝት) Pentatonic Mode Intelligence (Tizita, Bati, Ambassel, Anchihoye)
+ * - 🌌 2D Interactive Acoustic Latent Space Map (t-SNE/SVD Canvas with pulsing seed beacons and trajectories)
+ * - 📻 "Vibe & Era Dial" Presets (Buna & Tizita, Eskista Beat, Mulatu's Lounge, Azmari Underground, 70s/90s/2020s)
+ * - 📥 "My Vault" Favorites Drawer & 1-Click YouTube Multi-Video Playlist Generation
  * - Interactive YouTube IFrame Player API (YT.Player) with privacy-isolated youtube-nocookie.com
  * - Seamless YouTube-like Continuous Autoplay with 5s "Up Next" countdown transition
  * - Fast-path catalog checking to bypass audio extraction for known YouTube URLs
- * - Infinite discovery radio stream via dynamic background re-seeding
- * - Full player navigation (Prev, Play/Pause, Next, Reseed) and YouTube keyboard shortcuts
  * - Zero-replay local & server session cooldown ledger
  */
 
@@ -16,6 +18,10 @@ class AcousticVaultApp {
         this.sessionToken = this.getOrCreateSessionToken();
         this.obscurityFactor = 0.75;
         this.bpmFilter = "all";
+        this.qenetFilter = "all";
+        this.vibePreset = null;
+        this.eraFilter = "all";
+
         this.activeSeedId = null;
         this.currentTrack = null;
         this.queue = [];
@@ -25,7 +31,6 @@ class AcousticVaultApp {
         // Autoplay & Countdown State
         this.autoplayEnabled = localStorage.getItem("acoustic_autoplay") !== "false"; // Default true
         this.countdownInterval = null;
-        this.countdownTimer = null;
         this.countdownRemaining = 5;
 
         // YouTube Player Instance
@@ -35,10 +40,23 @@ class AcousticVaultApp {
         this.isPlaying = false;
         this.isMuted = false;
 
+        // My Vault Favorites
+        this.vaultFavorites = JSON.parse(localStorage.getItem("acoustic_vault_favorites") || "[]");
+
+        // Galaxy Canvas State
+        this.galaxyPoints = [];
+        this.galaxyCanvas = null;
+        this.galaxyCtx = null;
+        this.hoveredPoint = null;
+        this.animFrameId = null;
+
         this.initDOMElements();
         this.bindEvents();
         this.initYouTubePlayer();
+        this.initGalaxyCanvas();
+        this.initVaultDrawer();
         this.loadCatalogStatus();
+        this.loadGalaxyData();
         this.fetchInitialQueue();
     }
 
@@ -52,7 +70,7 @@ class AcousticVaultApp {
     }
 
     initDOMElements() {
-        // Controls
+        // Sliders & Controls
         this.slider = document.getElementById("obscurity-slider");
         this.obscurityVal = document.getElementById("obscurity-val");
         this.urlInput = document.getElementById("youtube-url-input");
@@ -66,6 +84,8 @@ class AcousticVaultApp {
         this.currentTitle = document.getElementById("current-track-title");
         this.currentChannel = document.getElementById("current-track-channel");
         this.currentViews = document.getElementById("current-track-views");
+        this.currentQenetBadge = document.getElementById("current-qenet-badge");
+        this.btnStarCurrent = document.getElementById("btn-star-current");
         this.meterBpm = document.getElementById("meter-bpm");
         this.meterEnergy = document.getElementById("meter-energy-fill");
         this.meterBright = document.getElementById("meter-bright-fill");
@@ -99,6 +119,28 @@ class AcousticVaultApp {
         this.queueContainer = document.getElementById("queue-list-container");
         this.cooldownCount = document.getElementById("cooldown-count");
 
+        // Badges & Drawer
+        this.btnToggleGalaxy = document.getElementById("btn-toggle-galaxy");
+        this.galaxySection = document.getElementById("galaxy-section");
+        this.btnOpenVault = document.getElementById("btn-open-vault");
+        this.vaultBadgeCount = document.getElementById("vault-badge-count");
+        this.vaultTrackCount = document.getElementById("vault-track-count");
+        this.vaultDrawer = document.getElementById("vault-drawer");
+        this.vaultBackdrop = document.getElementById("vault-backdrop");
+        this.btnCloseVault = document.getElementById("btn-close-vault");
+        this.vaultListContainer = document.getElementById("vault-list-container");
+
+        // Vault Actions
+        this.btnPlayAllYoutube = document.getElementById("btn-play-all-youtube");
+        this.btnExportM3u = document.getElementById("btn-export-m3u");
+        this.btnExportJson = document.getElementById("btn-export-json");
+        this.btnCopyTracklist = document.getElementById("btn-copy-tracklist");
+        this.btnClearVault = document.getElementById("btn-clear-vault");
+
+        // Hints
+        this.activeQenetDesc = document.getElementById("active-qenet-desc");
+        this.activeEraHint = document.getElementById("active-era-hint");
+
         // Set initial toggle state
         if (this.toggleAutoplay) {
             this.toggleAutoplay.checked = this.autoplayEnabled;
@@ -116,12 +158,44 @@ class AcousticVaultApp {
             this.fetchQueue();
         });
 
-        // BPM Pills
-        document.querySelectorAll(".tempo-pills .pill").forEach(pill => {
+        // Vibe Preset Buttons
+        document.querySelectorAll(".vibe-pill").forEach(pill => {
             pill.addEventListener("click", () => {
-                document.querySelectorAll(".tempo-pills .pill").forEach(p => p.classList.remove("active"));
+                const vibe = pill.dataset.vibe;
+                if (pill.classList.contains("active")) {
+                    pill.classList.remove("active");
+                    this.vibePreset = null;
+                } else {
+                    document.querySelectorAll(".vibe-pill").forEach(p => p.classList.remove("active"));
+                    pill.classList.add("active");
+                    this.vibePreset = vibe;
+                }
+                this.fetchQueue();
+            });
+        });
+
+        // Ethiopian Qenet Modal Filter Buttons
+        document.querySelectorAll(".qenet-pill").forEach(pill => {
+            pill.addEventListener("click", () => {
+                document.querySelectorAll(".qenet-pill").forEach(p => p.classList.remove("active"));
                 pill.classList.add("active");
-                this.bpmFilter = pill.dataset.bpm;
+                this.qenetFilter = pill.dataset.qenet;
+                if (this.activeQenetDesc) {
+                    this.activeQenetDesc.textContent = this.qenetFilter === "all" ? "All Scales" : `Mode: ${this.qenetFilter}`;
+                }
+                this.fetchQueue();
+            });
+        });
+
+        // Musical Era Buttons
+        document.querySelectorAll(".era-pill").forEach(pill => {
+            pill.addEventListener("click", () => {
+                document.querySelectorAll(".era-pill").forEach(p => p.classList.remove("active"));
+                pill.classList.add("active");
+                this.eraFilter = pill.dataset.era;
+                if (this.activeEraHint) {
+                    this.activeEraHint.textContent = this.eraFilter === "all" ? "All Eras" : this.eraFilter;
+                }
                 this.fetchQueue();
             });
         });
@@ -139,6 +213,25 @@ class AcousticVaultApp {
         this.btnReseed.addEventListener("click", () => this.reseedFromCurrent());
         this.btnRefreshQueue.addEventListener("click", () => this.fetchQueue());
         this.btnResetSession.addEventListener("click", () => this.resetSessionHistory());
+
+        // Star Current Track
+        if (this.btnStarCurrent) {
+            this.btnStarCurrent.addEventListener("click", () => {
+                if (this.currentTrack) {
+                    this.toggleFavorite(this.currentTrack);
+                }
+            });
+        }
+
+        // Toggle Galaxy Section
+        if (this.btnToggleGalaxy && this.galaxySection) {
+            this.btnToggleGalaxy.addEventListener("click", () => {
+                this.galaxySection.classList.toggle("collapsed");
+                if (!this.galaxySection.classList.contains("collapsed")) {
+                    this.drawGalaxy();
+                }
+            });
+        }
 
         // Autoplay Toggle
         if (this.toggleAutoplay) {
@@ -164,7 +257,6 @@ class AcousticVaultApp {
 
         // Global YouTube Keyboard Shortcuts
         document.addEventListener("keydown", (e) => {
-            // Ignore keystrokes when typing inside inputs
             if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
 
             if (e.shiftKey && (e.key === "N" || e.key === "n")) {
@@ -183,6 +275,7 @@ class AcousticVaultApp {
                 this.toggleMute();
             } else if (e.key === "Escape") {
                 this.cancelUpNextCountdown();
+                this.closeVaultDrawer();
             }
         });
     }
@@ -229,7 +322,6 @@ class AcousticVaultApp {
     }
 
     onPlayerStateChange(event) {
-        // YT.PlayerState: -1 (UNSTARTED), 0 (ENDED), 1 (PLAYING), 2 (PAUSED), 3 (BUFFERING), 5 (CUED)
         if (event.data === YT.PlayerState.PLAYING) {
             this.isPlaying = true;
             this.updatePlayPauseIcon("⏸️");
@@ -292,7 +384,6 @@ class AcousticVaultApp {
     handleTrackEnded() {
         if (!this.autoplayEnabled) return;
 
-        // If no items in queue, attempt immediate replenishment
         if (this.queue.length === 0) {
             this.fetchQueue(true);
             return;
@@ -317,7 +408,6 @@ class AcousticVaultApp {
         if (this.upNextProgressFill) {
             this.upNextProgressFill.style.transition = "none";
             this.upNextProgressFill.style.width = "100%";
-            // Trigger reflow to restart transition
             void this.upNextProgressFill.offsetWidth;
             this.upNextProgressFill.style.transition = "width 5s linear";
             this.upNextProgressFill.style.width = "0%";
@@ -361,29 +451,22 @@ class AcousticVaultApp {
         }
     }
 
-    getBpmFilterBounds() {
-        if (this.bpmFilter === "slow") return { min_bpm: 50, max_bpm: 100 };
-        if (this.bpmFilter === "mid") return { min_bpm: 100, max_bpm: 128 };
-        if (this.bpmFilter === "fast") return { min_bpm: 128, max_bpm: 220 };
-        return { min_bpm: null, max_bpm: null };
-    }
-
     async fetchInitialQueue() {
         await this.fetchQueue(true);
     }
 
     async fetchQueue(autoPlayFirst = false, isBackgroundRefill = false) {
         if (!isBackgroundRefill) {
-            this.queueContainer.innerHTML = `<div class="loading-queue">Computing acoustic similarities in latent space...</div>`;
+            this.queueContainer.innerHTML = `<div class="loading-queue">Computing pentatonic & acoustic similarities in latent space...</div>`;
         }
 
-        const bpmBounds = this.getBpmFilterBounds();
         const payload = {
             seed_track_id: this.activeSeedId,
             session_token: this.sessionToken,
             obscurity_factor: this.obscurityFactor,
-            min_bpm: bpmBounds.min_bpm,
-            max_bpm: bpmBounds.max_bpm,
+            qenet_filter: this.qenetFilter !== "all" ? this.qenetFilter : null,
+            vibe_preset: this.vibePreset,
+            era_filter: this.eraFilter !== "all" ? this.eraFilter : null,
             batch_size: 10,
             excluded_track_ids: Array.from(this.localCooldownIds)
         };
@@ -395,11 +478,9 @@ class AcousticVaultApp {
                 body: JSON.stringify(payload)
             });
             const data = await res.json();
-
             const newItems = data.items || [];
 
             if (isBackgroundRefill) {
-                // Filter out duplicates and append to existing queue
                 const existingIds = new Set(this.queue.map(t => t.track_id));
                 const filtered = newItems.filter(t => !existingIds.has(t.track_id));
                 this.queue = this.queue.concat(filtered);
@@ -414,6 +495,7 @@ class AcousticVaultApp {
             }
 
             this.renderQueue();
+            this.drawGalaxy();
 
             if (autoPlayFirst && this.queue.length > 0 && !this.currentTrack) {
                 this.playTrack(this.queue[0]);
@@ -428,7 +510,7 @@ class AcousticVaultApp {
 
     renderQueue() {
         if (!this.queue || this.queue.length === 0) {
-            this.queueContainer.innerHTML = `<div class="loading-queue">No unplayed tracks match current filters. Try adjusting the obscurity dial or resetting history.</div>`;
+            this.queueContainer.innerHTML = `<div class="loading-queue">No unplayed tracks match current filters. Try adjusting the obscurity dial or switching Qenet mode.</div>`;
             return;
         }
 
@@ -438,6 +520,9 @@ class AcousticVaultApp {
             el.className = "queue-item";
             const matchPct = Math.round(item.acoustic_similarity_score * 100);
             const obscurePct = Math.round(item.obscurity_score * 100);
+            const qenetMode = item.qenet_mode || "Tizita";
+            const qenetClass = qenetMode.toLowerCase();
+            const isFav = this.isFavorite(item.track_id);
 
             el.innerHTML = `
                 <div class="queue-item-info">
@@ -445,20 +530,32 @@ class AcousticVaultApp {
                     <div class="queue-item-meta">
                         <span>${item.channel_name}</span>
                         <span>•</span>
-                        <span>${Math.round(item.bpm)} BPM</span>
+                        <span class="qenet-badge ${qenetClass}">ቅኝት: ${qenetMode}</span>
                         <span>•</span>
-                        <span>${this.formatDuration(item.duration_seconds)}</span>
+                        <span>${Math.round(item.bpm)} BPM</span>
                     </div>
                 </div>
                 <div class="queue-item-scores">
+                    <button class="btn-star queue-star ${isFav ? 'starred' : ''}" data-id="${item.track_id}" title="${isFav ? 'Remove from Vault' : 'Save to Vault'}">⭐</button>
                     <span class="score-badge score-match">${matchPct}% Sound Match</span>
-                    <span class="score-obscurity">🔮 ${obscurePct}% Obscurity</span>
+                    <span class="score-obscurity">🔮 ${obscurePct}%</span>
                 </div>
             `;
-            el.addEventListener("click", () => {
+
+            // Click on info area to play
+            el.querySelector(".queue-item-info").addEventListener("click", () => {
                 this.cancelUpNextCountdown();
                 this.playTrack(item);
             });
+
+            // Click star to toggle favorite
+            const starBtn = el.querySelector(".queue-star");
+            starBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                this.toggleFavorite(item);
+                starBtn.classList.toggle("starred", this.isFavorite(item.track_id));
+            });
+
             this.queueContainer.appendChild(el);
         });
     }
@@ -469,10 +566,8 @@ class AcousticVaultApp {
         this.cancelUpNextCountdown();
 
         if (this.currentTrack) {
-            // Push old track to history stack for previous playback
             this.historyStack.push(this.currentTrack);
             if (this.historyStack.length > 25) this.historyStack.shift();
-            // Record completion feedback
             this.recordFeedback(this.currentTrack.track_id, "COMPLETED");
         }
 
@@ -483,6 +578,19 @@ class AcousticVaultApp {
         this.currentTitle.textContent = track.title;
         this.currentChannel.textContent = track.channel_name;
         this.currentViews.innerHTML = `<span>👁️ ${this.formatViews(track.view_count)} views</span>`;
+
+        // Update Qenet badge
+        const qenet = track.qenet_mode || "Tizita";
+        if (this.currentQenetBadge) {
+            this.currentQenetBadge.textContent = `ቅኝት: ${qenet}`;
+            this.currentQenetBadge.className = `qenet-badge ${qenet.toLowerCase()}`;
+        }
+
+        // Update Star status
+        if (this.btnStarCurrent) {
+            this.btnStarCurrent.classList.toggle("starred", this.isFavorite(track.track_id));
+        }
+
         this.meterBpm.textContent = `${Math.round(track.bpm)} BPM`;
         this.meterEnergy.style.width = `${Math.round((track.energy || 0.5) * 100)}%`;
         this.meterBright.style.width = `${Math.round((track.brightness || 0.5) * 100)}%`;
@@ -498,8 +606,9 @@ class AcousticVaultApp {
         // Remove from current queue display
         this.queue = this.queue.filter(t => t.track_id !== track.track_id);
         this.renderQueue();
+        this.drawGalaxy();
 
-        // Continuous Infinite Radio: Dynamic background replenishment when queue runs low
+        // Infinite discovery chain
         if (this.queue.length < 3) {
             this.activeSeedId = track.track_id;
             this.fetchQueue(false, true);
@@ -526,11 +635,10 @@ class AcousticVaultApp {
 
         if (this.historyStack.length > 0) {
             const prev = this.historyStack.pop();
-            // Place current back at top of queue
             if (this.currentTrack) {
                 this.queue.unshift(this.currentTrack);
             }
-            this.currentTrack = null; // Reset so current won't get pushed onto historyStack in playTrack
+            this.currentTrack = null;
             this.playTrack(prev);
         }
     }
@@ -590,6 +698,411 @@ class AcousticVaultApp {
         }
     }
 
+    /* ----------------- 2D Acoustic Latent Galaxy Canvas Engine ----------------- */
+
+    initGalaxyCanvas() {
+        this.galaxyCanvas = document.getElementById("galaxy-canvas");
+        if (!this.galaxyCanvas) return;
+        this.galaxyCtx = this.galaxyCanvas.getContext("2d");
+        this.galaxyTooltip = document.getElementById("galaxy-tooltip");
+
+        const resizeCanvas = () => {
+            const rect = this.galaxyCanvas.parentElement.getBoundingClientRect();
+            this.galaxyCanvas.width = rect.width * window.devicePixelRatio;
+            this.galaxyCanvas.height = rect.height * window.devicePixelRatio;
+            this.galaxyCtx.scale(window.devicePixelRatio, window.devicePixelRatio);
+            this.drawGalaxy();
+        };
+
+        window.addEventListener("resize", resizeCanvas);
+        setTimeout(resizeCanvas, 100);
+
+        // Mouse Hover & Interaction
+        this.galaxyCanvas.addEventListener("mousemove", (e) => {
+            const rect = this.galaxyCanvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            const pt = this.findNearestGalaxyPoint(mouseX, mouseY);
+
+            if (pt) {
+                this.hoveredPoint = pt;
+                this.galaxyCanvas.style.cursor = "pointer";
+                if (this.galaxyTooltip) {
+                    this.galaxyTooltip.classList.remove("hidden");
+                    this.galaxyTooltip.style.left = `${mouseX}px`;
+                    this.galaxyTooltip.style.top = `${mouseY - 10}px`;
+                    this.galaxyTooltip.innerHTML = `
+                        <strong>${pt.title}</strong><br>
+                        <span style="color: #94a3b8;">${pt.channel_name}</span><br>
+                        <span style="color: #06b6d4;">ቅኝት: ${pt.qenet_mode || "Tizita"}</span> • 
+                        <span style="color: #f59e0b;">${Math.round(pt.bpm)} BPM</span> • 
+                        <span style="color: #a855f7;">${pt.era || "Amharic"}</span>
+                    `;
+                }
+            } else {
+                this.hoveredPoint = null;
+                this.galaxyCanvas.style.cursor = "crosshair";
+                if (this.galaxyTooltip) {
+                    this.galaxyTooltip.classList.add("hidden");
+                }
+            }
+        });
+
+        this.galaxyCanvas.addEventListener("mouseleave", () => {
+            this.hoveredPoint = null;
+            if (this.galaxyTooltip) this.galaxyTooltip.classList.add("hidden");
+        });
+
+        this.galaxyCanvas.addEventListener("click", (e) => {
+            const rect = this.galaxyCanvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            const pt = this.findNearestGalaxyPoint(mouseX, mouseY);
+
+            if (pt) {
+                this.cancelUpNextCountdown();
+                this.playTrack({
+                    track_id: pt.track_id,
+                    youtube_video_id: pt.youtube_video_id,
+                    title: pt.title,
+                    channel_name: pt.channel_name,
+                    duration_seconds: pt.duration_seconds,
+                    view_count: pt.view_count,
+                    bpm: pt.bpm,
+                    energy: pt.energy,
+                    brightness: pt.brightness,
+                    qenet_mode: pt.qenet_mode,
+                    era: pt.era
+                });
+            }
+        });
+
+        this.startGalaxyAnimation();
+    }
+
+    async loadGalaxyData() {
+        try {
+            const res = await fetch(`${API_BASE}/catalog/galaxy`);
+            const data = await res.json();
+            this.galaxyPoints = data.points || [];
+            this.drawGalaxy();
+        } catch (e) {
+            console.warn("Could not load galaxy coordinates", e);
+        }
+    }
+
+    findNearestGalaxyPoint(canvasX, canvasY) {
+        if (!this.galaxyCanvas || !this.galaxyPoints.length) return null;
+        const rect = this.galaxyCanvas.getBoundingClientRect();
+        const width = rect.width;
+        const height = rect.height;
+
+        let nearest = null;
+        let minDist = 18; // Hit detection radius (px)
+
+        for (const pt of this.galaxyPoints) {
+            const rawX = pt.galaxy_x !== undefined ? pt.galaxy_x : (pt.x !== undefined ? pt.x : 0.0);
+            const rawY = pt.galaxy_y !== undefined ? pt.galaxy_y : (pt.y !== undefined ? pt.y : 0.0);
+            const px = ((rawX + 1.0) / 2.0) * (width - 80) + 40;
+            const py = ((rawY + 1.0) / 2.0) * (height - 80) + 40;
+            const dist = Math.hypot(canvasX - px, canvasY - py);
+
+            if (dist < minDist) {
+                minDist = dist;
+                nearest = pt;
+            }
+        }
+        return nearest;
+    }
+
+    startGalaxyAnimation() {
+        const render = () => {
+            this.drawGalaxy();
+            this.animFrameId = requestAnimationFrame(render);
+        };
+        this.animFrameId = requestAnimationFrame(render);
+    }
+
+    drawGalaxy() {
+        if (!this.galaxyCtx || !this.galaxyCanvas) return;
+        const rect = this.galaxyCanvas.getBoundingClientRect();
+        const width = rect.width;
+        const height = rect.height;
+        if (width === 0 || height === 0) return;
+
+        const ctx = this.galaxyCtx;
+        ctx.clearRect(0, 0, width, height);
+
+        // Draw faint constellation grid
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.03)";
+        ctx.lineWidth = 1;
+        for (let x = 0; x < width; x += 60) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, height);
+            ctx.stroke();
+        }
+        for (let y = 0; y < height; y += 60) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(width, y);
+            ctx.stroke();
+        }
+
+        const now = Date.now() / 1000;
+
+        // Color mapper for Ethiopian Qenet modes
+        const getQenetColor = (mode) => {
+            switch ((mode || "").toLowerCase()) {
+                case "tizita": return "#f59e0b";
+                case "bati": return "#06b6d4";
+                case "ambassel": return "#10b981";
+                case "anchihoye": return "#a855f7";
+                default: return "#38bdf8";
+            }
+        };
+
+        let seedCoord = null;
+        let nextCoord = null;
+
+        // Draw all catalog star nodes
+        for (const pt of this.galaxyPoints) {
+            const rawX = pt.galaxy_x !== undefined ? pt.galaxy_x : (pt.x !== undefined ? pt.x : 0.0);
+            const rawY = pt.galaxy_y !== undefined ? pt.galaxy_y : (pt.y !== undefined ? pt.y : 0.0);
+            const px = ((rawX + 1.0) / 2.0) * (width - 80) + 40;
+            const py = ((rawY + 1.0) / 2.0) * (height - 80) + 40;
+            const color = getQenetColor(pt.qenet_mode);
+
+            const isCurrent = this.currentTrack && this.currentTrack.track_id === pt.track_id;
+            const isNext = this.queue.length > 0 && this.queue[0].track_id === pt.track_id;
+
+            if (isCurrent) seedCoord = { x: px, y: py, color };
+            if (isNext) nextCoord = { x: px, y: py, color };
+
+            ctx.save();
+            ctx.fillStyle = color;
+            ctx.shadowColor = color;
+            ctx.shadowBlur = isCurrent ? 20 : 6;
+
+            ctx.beginPath();
+            const radius = isCurrent ? 7 : (pt === this.hoveredPoint ? 6 : 4);
+            ctx.arc(px, py, radius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Pulse ring around current playing track
+            if (isCurrent) {
+                const pulse = (Math.sin(now * 3) + 1) / 2;
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.arc(px, py, 12 + pulse * 10, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+
+            ctx.restore();
+        }
+
+        // Draw animated curved trajectory line between Current -> Up Next
+        if (seedCoord && nextCoord) {
+            ctx.save();
+            ctx.strokeStyle = "rgba(6, 182, 212, 0.6)";
+            ctx.lineWidth = 2;
+            ctx.setLineDash([6, 6]);
+            ctx.lineDashOffset = -now * 25;
+
+            ctx.beginPath();
+            ctx.moveTo(seedCoord.x, seedCoord.y);
+            const midX = (seedCoord.x + nextCoord.x) / 2;
+            const midY = (seedCoord.y + nextCoord.y) / 2 - 30;
+            ctx.quadraticCurveTo(midX, midY, nextCoord.x, nextCoord.y);
+            ctx.stroke();
+            ctx.restore();
+        }
+    }
+
+    /* ----------------- My Vault Drawer & Playlist Export ----------------- */
+
+    initVaultDrawer() {
+        this.updateVaultDisplay();
+
+        if (this.btnOpenVault) {
+            this.btnOpenVault.addEventListener("click", () => this.openVaultDrawer());
+        }
+        if (this.btnCloseVault) {
+            this.btnCloseVault.addEventListener("click", () => this.closeVaultDrawer());
+        }
+        if (this.vaultBackdrop) {
+            this.vaultBackdrop.addEventListener("click", () => this.closeVaultDrawer());
+        }
+
+        if (this.btnPlayAllYoutube) {
+            this.btnPlayAllYoutube.addEventListener("click", () => this.playAllInYouTube());
+        }
+        if (this.btnExportM3u) {
+            this.btnExportM3u.addEventListener("click", () => this.exportVaultM3U());
+        }
+        if (this.btnExportJson) {
+            this.btnExportJson.addEventListener("click", () => this.exportVaultJSON());
+        }
+        if (this.btnCopyTracklist) {
+            this.btnCopyTracklist.addEventListener("click", () => this.copyVaultLinks());
+        }
+        if (this.btnClearVault) {
+            this.btnClearVault.addEventListener("click", () => this.clearVault());
+        }
+    }
+
+    openVaultDrawer() {
+        if (this.vaultDrawer) this.vaultDrawer.classList.remove("hidden");
+        if (this.vaultBackdrop) this.vaultBackdrop.classList.remove("hidden");
+        this.renderVaultList();
+    }
+
+    closeVaultDrawer() {
+        if (this.vaultDrawer) this.vaultDrawer.classList.add("hidden");
+        if (this.vaultBackdrop) this.vaultBackdrop.classList.add("hidden");
+    }
+
+    isFavorite(trackId) {
+        return this.vaultFavorites.some(t => t.track_id === trackId);
+    }
+
+    toggleFavorite(track) {
+        const idx = this.vaultFavorites.findIndex(t => t.track_id === track.track_id);
+        if (idx >= 0) {
+            this.vaultFavorites.splice(idx, 1);
+        } else {
+            this.vaultFavorites.push({
+                track_id: track.track_id,
+                youtube_video_id: track.youtube_video_id,
+                title: track.title,
+                channel_name: track.channel_name,
+                duration_seconds: track.duration_seconds,
+                bpm: track.bpm,
+                qenet_mode: track.qenet_mode || "Tizita",
+                era: track.era || "Amharic"
+            });
+        }
+        localStorage.setItem("acoustic_vault_favorites", JSON.stringify(this.vaultFavorites));
+        this.updateVaultDisplay();
+        this.renderVaultList();
+
+        if (this.currentTrack && this.currentTrack.track_id === track.track_id && this.btnStarCurrent) {
+            this.btnStarCurrent.classList.toggle("starred", this.isFavorite(track.track_id));
+        }
+    }
+
+    updateVaultDisplay() {
+        const count = this.vaultFavorites.length;
+        if (this.vaultBadgeCount) this.vaultBadgeCount.textContent = count;
+        if (this.vaultTrackCount) this.vaultTrackCount.textContent = count;
+    }
+
+    renderVaultList() {
+        if (!this.vaultListContainer) return;
+
+        if (this.vaultFavorites.length === 0) {
+            this.vaultListContainer.innerHTML = `<div class="empty-vault">Your Vault is empty.<br>Click the ⭐ icon on any track to save it here!</div>`;
+            return;
+        }
+
+        this.vaultListContainer.innerHTML = "";
+        this.vaultFavorites.forEach((track) => {
+            const el = document.createElement("div");
+            el.className = "vault-item";
+            const qenetMode = track.qenet_mode || "Tizita";
+
+            el.innerHTML = `
+                <div class="vault-item-left">
+                    <button class="btn btn-sm btn-primary btn-play-vault" title="Play Track">▶️</button>
+                    <div class="vault-item-info">
+                        <div class="vault-item-title">${track.title}</div>
+                        <div class="vault-item-meta">
+                            <span>${track.channel_name}</span>
+                            <span>•</span>
+                            <span class="qenet-badge ${qenetMode.toLowerCase()}">ቅኝት: ${qenetMode}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="vault-item-actions">
+                    <a href="https://www.youtube.com/watch?v=${track.youtube_video_id}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline" title="Open in YouTube">↗</a>
+                    <button class="btn-text btn-remove-vault" title="Remove from Vault">✕</button>
+                </div>
+            `;
+
+            el.querySelector(".btn-play-vault").addEventListener("click", () => {
+                this.closeVaultDrawer();
+                this.playTrack(track);
+            });
+
+            el.querySelector(".btn-remove-vault").addEventListener("click", () => {
+                this.toggleFavorite(track);
+            });
+
+            this.vaultListContainer.appendChild(el);
+        });
+    }
+
+    playAllInYouTube() {
+        if (this.vaultFavorites.length === 0) {
+            alert("Your Vault is empty! Save some tracks first.");
+            return;
+        }
+        const videoIds = this.vaultFavorites.map(t => t.youtube_video_id).filter(Boolean);
+        const playlistUrl = `https://www.youtube.com/watch_videos?video_ids=${videoIds.join(",")}`;
+        window.open(playlistUrl, "_blank", "noopener,noreferrer");
+    }
+
+    exportVaultM3U() {
+        if (this.vaultFavorites.length === 0) return alert("Your Vault is empty.");
+        let m3u = "#EXTM3U\n";
+        this.vaultFavorites.forEach(t => {
+            m3u += `#EXTINF:${Math.round(t.duration_seconds || 0)},${t.channel_name} - ${t.title}\n`;
+            m3u += `https://www.youtube.com/watch?v=${t.youtube_video_id}\n`;
+        });
+
+        const blob = new Blob([m3u], { type: "audio/x-mpegurl;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "acoustic_vault_playlist.m3u";
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    exportVaultJSON() {
+        if (this.vaultFavorites.length === 0) return alert("Your Vault is empty.");
+        const blob = new Blob([JSON.stringify(this.vaultFavorites, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "acoustic_vault_favorites.json";
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    copyVaultLinks() {
+        if (this.vaultFavorites.length === 0) return alert("Your Vault is empty.");
+        const text = this.vaultFavorites.map(t => `${t.title} - https://www.youtube.com/watch?v=${t.youtube_video_id}`).join("\n");
+        navigator.clipboard.writeText(text).then(() => {
+            if (this.btnCopyTracklist) {
+                const orig = this.btnCopyTracklist.textContent;
+                this.btnCopyTracklist.textContent = "✓ Copied!";
+                setTimeout(() => { this.btnCopyTracklist.textContent = orig; }, 1800);
+            }
+        });
+    }
+
+    clearVault() {
+        if (confirm("Are you sure you want to remove all tracks from My Vault?")) {
+            this.vaultFavorites = [];
+            localStorage.removeItem("acoustic_vault_favorites");
+            this.updateVaultDisplay();
+            this.renderVaultList();
+            if (this.btnStarCurrent) this.btnStarCurrent.classList.remove("starred");
+        }
+    }
+
     /* ----------------- Fast-Path URL Check & On-Demand Ingest ----------------- */
 
     async handleIngest() {
@@ -604,7 +1117,6 @@ class AcousticVaultApp {
         this.progressPct.textContent = "10%";
 
         try {
-            // 1. Fast-Path Check in Vector Store
             const checkRes = await fetch(`${API_BASE}/catalog/check-url`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -613,7 +1125,6 @@ class AcousticVaultApp {
             const checkData = await checkRes.json();
 
             if (checkData.exists && checkData.track) {
-                // Fast-Path Hit: Immediately play and reseed recommendations!
                 this.progressFill.style.width = "100%";
                 this.progressStage.textContent = "⚡ Track found in Vault! Starting instant playback...";
                 this.progressPct.textContent = "100%";
@@ -637,14 +1148,15 @@ class AcousticVaultApp {
                     energy: track.acoustic_features.energy,
                     brightness: track.acoustic_features.brightness,
                     danceability: track.acoustic_features.danceability,
-                    harmonic_key: track.acoustic_features.harmonic_key
+                    harmonic_key: track.acoustic_features.harmonic_key,
+                    qenet_mode: track.qenet_mode,
+                    era: track.era
                 });
                 this.fetchQueue();
                 return;
             }
 
-            // 2. Full Ingestion & Feature Extraction Flow via SSE
-            this.progressStage.textContent = "Extracting audio features & timbre...";
+            this.progressStage.textContent = "Extracting audio features & Qenet modal scale...";
             this.progressFill.style.width = "25%";
             this.progressPct.textContent = "25%";
 
@@ -656,7 +1168,6 @@ class AcousticVaultApp {
             const data = await res.json();
             const taskId = data.task_id;
 
-            // Subscribe to SSE progress
             const eventSource = new EventSource(`${API_BASE}/ingest/stream/${taskId}`);
 
             eventSource.addEventListener("progress", (e) => {
@@ -675,7 +1186,7 @@ class AcousticVaultApp {
 
                     if (info.track) {
                         this.loadCatalogStatus();
-                        // Instantly play the newly ingested track and generate recommendations
+                        this.loadGalaxyData();
                         this.activeSeedId = info.track.track_id;
                         this.playTrack({
                             track_id: info.track.track_id,
@@ -688,7 +1199,9 @@ class AcousticVaultApp {
                             energy: info.track.acoustic_features.energy,
                             brightness: info.track.acoustic_features.brightness,
                             danceability: info.track.acoustic_features.danceability,
-                            harmonic_key: info.track.acoustic_features.harmonic_key
+                            harmonic_key: info.track.acoustic_features.harmonic_key,
+                            qenet_mode: info.track.qenet_mode,
+                            era: info.track.era
                         });
                         this.fetchQueue();
                     }
