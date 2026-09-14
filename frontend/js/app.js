@@ -928,6 +928,7 @@ class AcousticVaultApp {
 
     initVaultDrawer() {
         this.updateVaultDisplay();
+        this.loadVaultFromBackend();
 
         if (this.btnOpenVault) {
             this.btnOpenVault.addEventListener("click", () => this.openVaultDrawer());
@@ -953,6 +954,37 @@ class AcousticVaultApp {
         }
         if (this.btnClearVault) {
             this.btnClearVault.addEventListener("click", () => this.clearVault());
+        }
+    }
+
+    async loadVaultFromBackend() {
+        try {
+            const res = await fetch(`${API_BASE}/vault/starred`);
+            const data = await res.json();
+            if (data.starred_tracks && data.starred_tracks.length > 0) {
+                const localIds = new Set(this.vaultFavorites.map(t => t.track_id));
+                data.starred_tracks.forEach(t => {
+                    if (!localIds.has(t.track_id)) {
+                        this.vaultFavorites.push(t);
+                    }
+                });
+                localStorage.setItem("acoustic_vault_favorites", JSON.stringify(this.vaultFavorites));
+                this.updateVaultDisplay();
+            }
+        } catch (e) {
+            console.warn("Could not sync vault from backend", e);
+        }
+    }
+
+    async syncVaultToBackend() {
+        try {
+            await fetch(`${API_BASE}/vault/starred`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ starred_tracks: this.vaultFavorites })
+            });
+        } catch (e) {
+            console.warn("Could not persist starred tracks to server file", e);
         }
     }
 
@@ -990,6 +1022,7 @@ class AcousticVaultApp {
         localStorage.setItem("acoustic_vault_favorites", JSON.stringify(this.vaultFavorites));
         this.updateVaultDisplay();
         this.renderVaultList();
+        this.syncVaultToBackend();
 
         if (this.currentTrack && this.currentTrack.track_id === track.track_id && this.btnStarCurrent) {
             this.btnStarCurrent.classList.toggle("starred", this.isFavorite(track.track_id));
@@ -1103,6 +1136,7 @@ class AcousticVaultApp {
             localStorage.removeItem("acoustic_vault_favorites");
             this.updateVaultDisplay();
             this.renderVaultList();
+            this.syncVaultToBackend();
             if (this.btnStarCurrent) this.btnStarCurrent.classList.remove("starred");
         }
     }

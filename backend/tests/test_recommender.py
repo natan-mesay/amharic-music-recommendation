@@ -251,3 +251,33 @@ def test_galaxy_and_presets_api():
         vibe_items = res_vibe_filter.json()["items"]
         assert len(vibe_items) > 0
 
+def test_vault_storage_and_sync():
+    with TestClient(app) as test_client:
+        sample_starred = [
+            {
+                "track_id": "test-fav-001",
+                "youtube_video_id": "TCpiaKDJX7A",
+                "title": "Erè Mèla Mèla",
+                "channel_name": "Mahmoud Ahmed",
+                "duration_seconds": 275,
+                "bpm": 120.0,
+                "qenet_mode": "Anchihoye",
+                "era": "Golden 70s"
+            }
+        ]
+        # 1. Post to sync vault
+        res_sync = test_client.post("/api/v1/vault/starred", json={"starred_tracks": sample_starred})
+        assert res_sync.status_code == 200
+        sync_data = res_sync.json()
+        assert sync_data["status"] == "success"
+        assert sync_data["count"] == 1
+
+        # 2. Get from vault endpoint
+        res_get = test_client.get("/api/v1/vault/starred")
+        assert res_get.status_code == 200
+        get_data = res_get.json()
+        assert get_data["total_starred"] >= 1
+        saved_titles = [t["title"] for t in get_data["starred_tracks"]]
+        assert "Erè Mèla Mèla" in saved_titles
+
+

@@ -2,11 +2,12 @@
 Main FastAPI Application Entrypoint.
 Exposes REST and SSE endpoints for recommendations, feedback, ingestion, and catalog exploration.
 """
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Body
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
+from typing import Dict, Any, List
 import os
 
 from .config import settings, BASE_DIR
@@ -249,6 +250,28 @@ async def get_track(track_id: str):
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
     return track
+
+@app.get(f"{settings.API_V1_PREFIX}/vault/starred")
+async def get_starred_vault():
+    """
+    Retrieve persisted starred favorite tracks from data/starred.yaml.
+    """
+    from backend.app.services.vault_storage import vault_storage
+    starred = vault_storage.get_starred()
+    return {
+        "total_starred": len(starred),
+        "starred_tracks": starred
+    }
+
+@app.post(f"{settings.API_V1_PREFIX}/vault/starred")
+async def sync_starred_vault(payload: Dict[str, Any] = Body(...)):
+    """
+    Save starred favorite tracks to data/starred.yaml and data/starred.json.
+    """
+    from backend.app.services.vault_storage import vault_storage
+    tracks = payload.get("starred_tracks", [])
+    result = vault_storage.save_starred(tracks)
+    return result
 
 @app.get(f"{settings.API_V1_PREFIX}/health")
 async def health_check():
