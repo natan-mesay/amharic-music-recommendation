@@ -1,13 +1,13 @@
 """
-Main FastAPI Application Entrypoint.
+Main FastAPI Application Entrypoint backed by SQLite & Qdrant.
 Exposes REST and SSE endpoints for recommendations, feedback, ingestion, and catalog exploration.
 """
-from fastapi import FastAPI, HTTPException, Request, Body
+from fastapi import FastAPI, HTTPException, Request, Body, Path as FastPath
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import os
 
 from .config import settings, BASE_DIR
@@ -15,6 +15,7 @@ from .models.schemas import (
     RecommendationRequest,
     RecommendationResponse,
     SessionFeedbackRequest,
+    VaultSyncRequest,
     IngestURLRequest,
     Track,
     GalaxyResponse
@@ -23,19 +24,25 @@ from .services.vector_store import vector_store
 from .services.recommender import recommender_engine
 from .services.session_manager import session_manager
 from .services.ingest_service import ingest_service
+from .services.vault_storage import vault_storage
 from .seed_catalog import init_seed_catalog_if_empty, reseed_amharic_catalog
+from .db.migrate import run_all_migrations
+from .db.repository import history_repo, track_repo
 
 from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Initialize SQLite schema and migrate legacy YAML/JSON
+    run_all_migrations()
+    # Initialize Qdrant vector database if empty
     init_seed_catalog_if_empty()
     yield
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    description="Zero-Replay, Audio-Content-Based Music Discovery Engine with YouTube History Isolation",
-    version="1.0.0",
+    description="Zero-Replay, Audio-Content-Based Music Discovery Engine with SQLite & Qdrant",
+    version="1.1.0",
     lifespan=lifespan
 )
 
@@ -62,7 +69,7 @@ async def get_next_recommendations(request: RecommendationRequest):
 @app.post(f"{settings.API_V1_PREFIX}/sessions/feedback")
 async def record_session_feedback(request: SessionFeedbackRequest):
     """
-    Record track completion or early skip to update the ephemeral session cooldown state.
+    Record track completion, early skip, like, or dislike to update the session state in SQLite.
     """
     session = session_manager.record_feedback(
         session_token=request.session_token,
@@ -72,7 +79,46 @@ async def record_session_feedback(request: SessionFeedbackRequest):
     return {
         "status": "success",
         "session_token": session.session_token,
-        "cooldown_active_count": len(session.get_all_cooldown_ids())
+        "cooldown_active_count": len(session.get_all_cooldown_ids()),
+        "liked_count": len(session.liked_track_ids)
+    }
+
+@app.get(f"{settings.API_V1_PREFIX}/sessions/{{session_token}}/history")
+async def get_session_history(session_token: str, limit: int = 100):
+    """
+    Retrieve heard history trail and interaction logs for a session directly from SQLite.
+    """
+    history = history_repo.get_session_history(session_token, limit=limit)
+    return {
+        "session_token": session_token,
+        "count": len(history),
+        "history": history
+    }
+
+@app.delete(f"{settings.API_V1_PREFIX}/sessions/{{session_token}}/history")
+async def clear_session_history_endpoint(session_token: str):
+    """
+    Clear playback history and reset in-memory session cooldowns.
+    """
+    session_manager.clear_session(session_token)
+    return {
+        "status": "cleared",
+        "session_token": session_token
+    }
+
+@app.post(f"{settings.API_V1_PREFIX}/sessions/vault/sync")
+async def sync_user_vault(request: VaultSyncRequest):
+    """
+    Sync user-liked / starred tracks to the backend to generate a personalized taste centroid vector.
+    """
+    session = session_manager.get_or_create_session(request.session_token)
+    session.sync_vault(request.liked_track_ids)
+    centroid = session.get_taste_centroid(vector_store)
+    return {
+        "status": "synced",
+        "session_token": session.session_token,
+        "liked_count": len(session.liked_track_ids),
+        "has_taste_centroid": centroid is not None
     }
 
 # ----------------- On-Demand Ingestion & SSE Progress -----------------
@@ -120,9 +166,9 @@ async def check_catalog_url(request: IngestURLRequest):
 @app.get(f"{settings.API_V1_PREFIX}/catalog/tracks")
 async def list_catalog_tracks(limit: int = 50):
     """
-    Retrieve indexed catalog tracks for seed exploration.
+    Retrieve indexed catalog tracks from SQLite for seed exploration.
     """
-    tracks = vector_store.get_all_tracks(limit=limit)
+    tracks = track_repo.get_all_tracks(limit=limit)
     return {
         "count": len(tracks),
         "tracks": tracks
@@ -232,21 +278,23 @@ async def get_vibe_presets():
 @app.post(f"{settings.API_V1_PREFIX}/catalog/reset-amharic")
 async def reset_catalog_to_amharic():
     """
-    Resets and re-indexes the vector database exclusively with authentic Amharic music tracks.
+    Resets and re-indexes both Qdrant and SQLite exclusively with authentic Amharic music tracks.
     """
     reseed_amharic_catalog()
     return {
         "status": "success",
-        "message": "Vector catalog successfully reset to 100% Amharic & Ethiopian tracks.",
+        "message": "Vector and SQLite catalog successfully reset to 100% Amharic & Ethiopian tracks.",
         "indexed_tracks": vector_store.count_tracks()
     }
 
 @app.get(f"{settings.API_V1_PREFIX}/tracks/{{track_id}}")
 async def get_track(track_id: str):
     """
-    Retrieve full acoustic profile and metadata for a given track.
+    Retrieve full acoustic profile and metadata for a given track from Qdrant/SQLite.
     """
     track = vector_store.get_track_by_id(track_id)
+    if not track:
+        track = track_repo.get_track_by_id(track_id)
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
     return track
@@ -254,9 +302,8 @@ async def get_track(track_id: str):
 @app.get(f"{settings.API_V1_PREFIX}/vault/starred")
 async def get_starred_vault():
     """
-    Retrieve persisted starred favorite tracks from data/starred.yaml.
+    Retrieve persisted starred favorite tracks from SQLite liked_tracks.
     """
-    from backend.app.services.vault_storage import vault_storage
     starred = vault_storage.get_starred()
     return {
         "total_starred": len(starred),
@@ -266,18 +313,26 @@ async def get_starred_vault():
 @app.post(f"{settings.API_V1_PREFIX}/vault/starred")
 async def sync_starred_vault(payload: Dict[str, Any] = Body(...)):
     """
-    Save starred favorite tracks to data/starred.yaml and data/starred.json.
+    Save or batch sync starred favorite tracks to SQLite liked_tracks.
     """
-    from backend.app.services.vault_storage import vault_storage
     tracks = payload.get("starred_tracks", [])
     result = vault_storage.save_starred(tracks)
     return result
+
+@app.delete(f"{settings.API_V1_PREFIX}/vault/starred/{{track_id}}")
+async def remove_starred_track(track_id: str):
+    """
+    Remove a track from SQLite liked_tracks by track_id or youtube_video_id.
+    """
+    success = vault_storage.remove_track(track_id)
+    return {"status": "success", "removed": success, "track_id": track_id}
 
 @app.get(f"{settings.API_V1_PREFIX}/health")
 async def health_check():
     return {
         "status": "healthy",
         "indexed_tracks": vector_store.count_tracks(),
+        "sqlite_tracks": track_repo.count_tracks(),
         "vector_dimensions": settings.EMBEDDING_DIM
     }
 

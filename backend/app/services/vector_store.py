@@ -269,11 +269,65 @@ class VectorStore:
             collection_name=self.collection_name,
             limit=500,
             with_payload=True,
-            with_vectors=False
+            with_vectors=True
         )
+        if not results:
+            return []
+
+        # Check if coordinates need SVD calculation
+        need_svd = any(p.payload.get("galaxy_x", 0.0) == 0.0 and p.payload.get("galaxy_y", 0.0) == 0.0 for p in results)
+        
+        coords_map = {}
+        if need_svd and len(results) > 1:
+            try:
+                import numpy as np
+                vectors = [np.array(p.vector) for p in results if p.vector is not None]
+                if len(vectors) == len(results):
+                    emb_matrix = np.array(vectors)
+                    centered = emb_matrix - np.mean(emb_matrix, axis=0)
+                    u, s, vt = np.linalg.svd(centered, full_matrices=False)
+                    coords_2d = u[:, :2] * s[:2]
+                    max_val = np.max(np.abs(coords_2d)) + 1e-6
+                    normalized = (coords_2d / max_val) * 0.85
+                    for idx, p in enumerate(results):
+                        coords_map[p.id] = (float(normalized[idx, 0]), float(normalized[idx, 1]))
+
+                # Persist coordinates back to Qdrant point payloads
+                for pid, (gx, gy) in coords_map.items():
+                    try:
+                        self.client.set_payload(
+                            collection_name=self.collection_name,
+                            payload={"galaxy_x": round(gx, 4), "galaxy_y": round(gy, 4)},
+                            points=[pid]
+                        )
+                    except Exception:
+                        pass
+
+                # Persist coordinates back to SQLite tracks table
+                try:
+                    from ..db.repository import track_repo
+                    sqlite_updates = []
+                    for p in results:
+                        if p.id in coords_map:
+                            gx, gy = coords_map[p.id]
+                            sqlite_updates.append((gx, gy, p.payload.get("track_id", str(p.id))))
+                    if sqlite_updates:
+                        track_repo.batch_update_galaxy_coordinates(sqlite_updates)
+                except Exception as e:
+                    print(f"⚠️ SQLite coordinate sync warning: {e}")
+
+            except Exception as e:
+                print(f"⚠️ Dynamic SVD error: {e}")
+
+
         points = []
         for p in results:
             payload = p.payload
+            gx = payload.get("galaxy_x", 0.0)
+            gy = payload.get("galaxy_y", 0.0)
+            if gx == 0.0 and gy == 0.0 and p.id in coords_map:
+                gx, gy = coords_map[p.id]
+
             points.append(GalaxyTrackPoint(
                 track_id=payload.get("track_id", str(p.id)),
                 youtube_video_id=payload.get("youtube_video_id", ""),
@@ -287,10 +341,11 @@ class VectorStore:
                 bpm=payload.get("bpm", 100.0),
                 energy=payload.get("energy", 0.5),
                 brightness=payload.get("brightness", 0.5),
-                galaxy_x=payload.get("galaxy_x", 0.0),
-                galaxy_y=payload.get("galaxy_y", 0.0)
+                galaxy_x=round(float(gx), 4),
+                galaxy_y=round(float(gy), 4)
             ))
         return points
+
 
     def get_all_tracks(self, limit: int = 100) -> List[Dict[str, Any]]:
         results, _ = self.client.scroll(

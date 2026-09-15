@@ -77,8 +77,12 @@ class RecommendationResponse(BaseModel):
 class SessionFeedbackRequest(BaseModel):
     session_token: str
     track_id: str
-    event_type: str = Field(..., description="COMPLETED, SKIPPED, DISLIKED, BOOKMARKED")
+    event_type: str = Field(..., description="COMPLETED, SKIPPED, DISLIKED, BOOKMARKED, LIKED, UNSTARRED")
     listen_duration_seconds: Optional[float] = 0.0
+
+class VaultSyncRequest(BaseModel):
+    session_token: str
+    liked_track_ids: List[str] = Field(default_factory=list, description="List of track IDs saved in user Vault")
 
 class IngestURLRequest(BaseModel):
     youtube_url: str

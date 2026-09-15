@@ -15,8 +15,16 @@ __pycache__/
 .coverage
 htmlcov/
 
-# Local Vector DB Data
+# Local Vector DB & SQLite Data
 data/qdrant_db/
+data/*.db
+data/*.db-wal
+data/*.db-shm
+*.db
+*.sqlite3
+
+# Local Exports & Temp Files
+acoustic_vault_favorites.json
 
 # OS / Editor Files
 .DS_Store

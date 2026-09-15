@@ -621,7 +621,11 @@ def generate_amharic_seed_catalog() -> List[Track]:
             embedding=base_vec.tolist()
         )
 
+        import uuid
+        det_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, str(item["youtube_video_id"])))
+
         track = Track(
+            track_id=det_id,
             youtube_video_id=item["youtube_video_id"],
             title=item["title"],
             channel_name=item["channel_name"],
@@ -636,8 +640,9 @@ def generate_amharic_seed_catalog() -> List[Track]:
         tracks.append(track)
     return tracks
 
+
 def reseed_amharic_catalog():
-    """Wipes existing database and initializes exclusively with verified Amharic catalog."""
+    """Wipes existing database and initializes exclusively with verified Amharic catalog in both Qdrant and SQLite."""
     try:
         vector_store.client.delete_collection(collection_name=vector_store.collection_name)
     except Exception:
@@ -645,6 +650,37 @@ def reseed_amharic_catalog():
     vector_store._ensure_collection()
     tracks = generate_amharic_seed_catalog()
     vector_store.upsert_tracks_batch(tracks)
+
+    # Sync to SQLite
+    try:
+        from .db.repository import track_repo
+        track_dicts = []
+        for t in tracks:
+            track_dicts.append({
+                "track_id": t.track_id,
+                "youtube_video_id": t.youtube_video_id,
+                "title": t.title,
+                "channel_name": t.channel_name,
+                "duration_seconds": t.duration_seconds,
+                "view_count": t.view_count,
+                "genre_tags": t.genre_tags,
+                "era": t.era,
+                "qenet_mode": t.acoustic_features.qenet_mode,
+                "qenet_submode": t.acoustic_features.qenet_submode,
+                "qenet_confidence": t.acoustic_features.qenet_confidence,
+                "bpm": t.acoustic_features.bpm,
+                "energy": t.acoustic_features.energy,
+                "brightness": t.acoustic_features.brightness,
+                "danceability": t.acoustic_features.danceability,
+                "tonal_energy": t.acoustic_features.tonal_energy,
+                "harmonic_key": t.acoustic_features.harmonic_key,
+                "galaxy_x": t.galaxy_x,
+                "galaxy_y": t.galaxy_y
+            })
+        track_repo.bulk_upsert_tracks(track_dicts)
+    except Exception as e:
+        print(f"⚠️ SQLite sync notice: {e}")
+
     print(f"🇪🇹 Re-seeded database with {len(tracks)} verified Amharic tracks with Qenet & 2D Latent Galaxy coordinates.")
 
 def init_seed_catalog_if_empty():
@@ -654,8 +690,10 @@ def init_seed_catalog_if_empty():
     else:
         sample = vector_store.get_all_tracks(limit=5)
         first_track = sample[0] if sample else {}
-        if "qenet_mode" not in first_track or "galaxy_x" not in first_track:
-            print("🔄 Migrating catalog to include Qenet and 2D Galaxy coordinates...")
+        has_galaxy = "galaxy_x" in first_track and any(abs(t.get("galaxy_x", 0.0)) > 0.001 for t in sample)
+        if "qenet_mode" not in first_track or not has_galaxy:
+            print("🔄 Migrating catalog to include Qenet and distributed 2D Galaxy coordinates...")
             reseed_amharic_catalog()
         else:
             print(f"ℹ️ Qdrant Vector DB contains {count} verified Amharic tracks with Qenet intelligence.")
+

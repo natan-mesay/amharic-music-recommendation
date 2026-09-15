@@ -1,0 +1,11 @@
+version: '1.0'
+total_starred: 1
+starred_tracks:
+- track_id: test-fav-001
+  youtube_video_id: TCpiaKDJX7A
+  title: Erè Mèla Mèla
+  channel_name: Mahmoud Ahmed
+  duration_seconds: 275
+  bpm: 120.0
+  qenet_mode: Anchihoye
+  era: Golden 70s
